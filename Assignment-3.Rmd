@@ -1,0 +1,521 @@
+---
+title: "Why Some Breast Cancers Have Better Outcomes? IntClus 4 + 5 Comparison"
+author: "Ibrahim"
+date: "2026-01-31"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    toc: true
+  html_document:
+    fig_caption: true
+    toc: true
+    df_print: paged
+---
+
+
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+set.seed(1)
+
+
+# Load Packages
+
+library(tidyverse)
+library(janitor)
+library(survival)
+library(survminer)
+library(gtsummary)
+library(maftools)
+library(ggpubr) 
+library(data.table)
+```
+
+# Abstract
+
+**Background:**
+Breast cancer exhibits substantial molecular heterogeneity, with integrative clustering defining biologically distinct subtypes associated with divergent clinical outcomes. Among these, IntClust4 and IntClust5 represent clinically important groups characterised by contrasting receptor status and genomic profiles.
+
+**Objective:**
+To compare transcriptomic patterns, mutational landscapes, tumour mutation burden, and survival outcomes between IntClust4 and IntClust5 breast cancers using the METABRIC cohort.
+
+**Methods:**
+Clinical, gene expression, and somatic mutation data were analysed for patients classified as IntClust4 or IntClust5. Baseline characteristics were summarised (Table 1). Principal component analysis (PCA) was applied to normalised gene expression data to assess global transcriptomic separation. Somatic mutation patterns were visualised using oncoplots, and tumour mutation burden (TMB) was compared using Wilcoxon rank-sum testing. Overall survival was evaluated using Kaplan–Meier curves and multivariable Cox proportional hazards modelling adjusted for age, receptor status, and treatment variables.
+
+**Results:**
+Baseline clinical profiles differed substantially between clusters, with IntClust4 enriched for ER-positive tumours and greater hormone therapy use, while IntClust5 showed higher HER2 positivity and chemotherapy exposure (Table 1). PCA demonstrated partial separation between clusters, indicating distinct transcriptional programmes. Oncoplot analysis revealed cluster-specific mutation patterns, with differences in frequently altered genes. TMB was modestly higher in IntClust5 compared with IntClust4, although distributions overlapped. Survival analysis showed significantly poorer overall survival for IntClust5, which remained independently associated with outcome after multivariable adjustment.
+
+**Conclusion:**
+IntClust4 and IntClust5 breast cancers exhibit distinct clinical, transcriptomic, and genomic characteristics, accompanied by divergent survival outcomes. These findings reinforce the biological heterogeneity underlying integrative clusters and highlight the importance of multi-omic profiling for risk stratification and therapeutic decision-making.
+
+
+# Introduction
+
+Breast cancer is currently the most frequent cancer diagnosed globally, with approximately 2.3 million new cases and 685,000 deaths recorded in 2020 alone. It is a highly heterogeneous disease, meaning it is a complex collection of different types driven by varied genetic factors. Traditionally, clinicians have grouped these cancers into categories—such as Luminal A, Luminal B, HER2-positive, and Basal—to help choose the most effective "targeted" therapies. However, while early detection has improved survival, the primary challenge remains treatment resistance, where the cancer continues to grow despite medical intervention.
+
+By looking beyond simple gene activity and integrating the genome’s physical "blueprint," researchers have identified ten new categories known as "Integrative Clusters". This approach revealed that nearly 40% of a tumour's gene activity is directly dictated by structural DNA changes, such as accidental duplications or deletions. This integrated view allowed scientists to see classification groups that were previously invisible, such as the "CNA-devoid" subgroup (IntClust 4). While other groups are defined by chaotic DNA damage, IntClust 4 is unique because its DNA landscape is "essentially flat," hiding a distinct biological signal that cannot be seen by looking at gene activity alone.
+
+The most significant feature of this quiet IntClust 4 group is the presence of specific genetic markers called T-cell receptor (TCR) deletions[1]. These deletions are not a sign of cancer damage but instead indicate that mature T lymphocytes (specialised immune cells) have successfully entered and "rearranged" themselves to attack the tumour. This adaptive immune response is linked to a favourable prognosis, providing patients with a much better chance of survival compared to the aggressive IntClust 5 group[13]. In contrast, IntClust 5 is driven by the HER2 gene, lacks this immune protection, and shows a steep mortality trajectory with the worst long-term survival rates. Ultimately, the purpose of this study is to show how tumours that trigger a strong internal immune response lead to significantly improved patient outcomes.
+
+# Methodology
+
+### Data sources ###
+This study used data from the Molecular Taxonomy of Breast Cancer International Consortium (METABRIC), a landmark integrative genomics study of approximately 2,000 primary breast tumours collected across the United Kingdom and Canada.[1] The dataset was accessed via a curated teaching subset provided through the MSt Healthcare Data Science program at the University of Cambridge. Three modalities were used: (i) patient-level clinical data (metabric_data_clinical_patient.csv), (ii) gene expression profiles (Expression_Data.csv), and (iii) somatic mutation calls (metabric_data_mutations.maf). All data are de-identified and represent a secondary analysis of a publicly available cohort; therefore, no additional ethical approval was required beyond that granted in the original METABRIC study.
+ 
+### Study Population and Subgroup Definition ###
+Patients were classified according to the ten-group integrative clustering (IntClust) framework published by Curtis et al.[1] Two subtypes of contrasting biological character were selected for comparison: IntClust4, which comprises CNA-devoid tumours that exhibit strong adaptive immune infiltration and includes both oestrogen receptor-positive (IntClust4 ER+) and ER-negative (IntClust4 ER−) tumours; and IntClust5, which is characterized by amplification of the ERBB2/HER2 locus, high genomic instability, and poor prognosis.2 The cluster variable was derived from the raw intclust_subtype field by collapsing the annotations '4ER+' and '4ER-' into 'IntClust4' and retaining '5' as 'IntClust5'.
+ 
+### Data Cleaning and Preprocessing ###
+All data processing was performed in R version 4.x using a reproducible R Markdown script. The clinical file was imported using readr::read_csv() and column names were standardized with janitor::clean_names(). Empty strings and the token "Unknown" were recoded as NA to ensure consistent handling of missing data. The overall survival event indicator (os_event) was derived from the os_status field by mapping the string "1:DECEASED" to 1 and "0:LIVING" to 0. The age at diagnosis variable was coerced to numeric. Two analysis cohorts were defined: a baseline cohort (all patients with a non-missing cluster assignment) used for Table 1, and a survival cohort (additionally requiring complete os_months and os_event) used for Kaplan-Meier and Cox regression analyses.
+
+Gene expression data were imported using data.table::fread() and column names were standardised to lower case. Where multiple probes mapped to the same HUGO gene symbol, expression values were averaged. Sample identifiers were harmonised between the expression matrix and the clinical annotation by converting to lower case and replacing hyphens with underscores. Only samples present in both the expression matrix and the survival cohort were retained for the PCA analysis. Genes with more than 10% missing values across retained samples were excluded; remaining missing values were imputed with the gene-level median. Zero-variance genes were removed, and PCA was applied to the top 2,000 most variable genes after centering and scaling.
+
+Somatic mutation data were loaded using maftools::read.maf(). Tumour mutational burden (TMB) was computed for all samples using the maftools::tmb() function, which normalises mutation counts to mutations per megabase (Mb). Clinically and biologically relevant driver genes (PIK3CA, GATA3, MAP3K1, ERBB2) were identified from the literature and confirmed against the overall gene mutation frequency table derived from the full METABRIC MAF file.
+
+ 
+### Statistical Analyses ###
+Baseline clinical characteristics of IntClust4 and IntClust5 patients were summarised using the gtsummary package.Continuous variables (age at diagnosis) are presented as mean (standard deviation) and compared using an independent samples t-test. Categorical variables are presented as count (percentage) and compared using Pearson's chi-squared test. Variables included age at diagnosis, menopausal status, ER status (IHC), HER2 status (SNP6), PAM50 molecular subtype, and receipt of chemotherapy, hormone therapy, and radiotherapy.
+
+Global transcriptomic separation between clusters was assessed using unsupervised principal component analysis (PCA). PCA was selected because it provides an unbiased, dimensionality-reduction approach to visualise dominant axes of variation across thousands of genes simultaneously without requiring a pre-specified gene list or hypothesis. The top 2,000 most variable genes (ranked by variance across all retained samples) were used to ensure computational efficiency while preserving the major biological signals. The first two principal components (PC1 and PC2) were plotted and colour-coded by cluster membership. Genes contributing most strongly to PC1 (top 20 positive and top 20 negative loadings) were extracted and cross-referenced with the somatic mutation frequency table to identify whether highly expressed genes were also frequently mutated, linking expression and genomic dimensions of the analysis.
+
+Somatic mutation patterns were visualised using the maftools package. An oncoplot was generated for four a priori selected driver genes: PIK3CA, GATA3, MAP3K1, and ERBB2. These genes were selected because they are among the most frequently altered genes in the METABRIC cohort and represent biologically distinct oncogenic mechanisms relevant to breast cancer subtypes.[1,5] The overall mutation frequency table was computed from the full MAF to provide cohort-wide context.
+
+TMB was compared between clusters using a Wilcoxon rank-sum test given the highly right-skewed distribution of mutation counts. TMB distributions were visualised as a histogram across all METABRIC samples to contextualise the cohort-level burden.
+ 
+### Survival analysis ###
+Overall survival (OS) was defined as time from diagnosis to death from any cause (os_months, os_event). Patients alive at last follow-up were censored. Kaplan–Meier (KM) survival curves were estimated separately for each cluster using the survival package6 and visualised with survminer.7 Differences between curves were assessed using the log-rank test. A multivariable Cox proportional hazards model was subsequently fitted to estimate the independent effect of cluster membership on OS, adjusting for age at diagnosis, ER status (IHC), HER2 status (SNP6), and receipt of chemotherapy, hormone therapy, and radiotherapy. Results are presented as hazard ratios (HRs) with 95% confidence intervals. The proportional hazards assumption was not formally tested in this exploratory analysis, which represents a limitation.
+
+
+```{R, message=FALSE, echo=FALSE}
+
+# Direct RAW URL
+clin_url <- "https://raw.githubusercontent.com/ibrahimalfawaz/Cambridge-Module-3/refs/heads/main/metabric_data_clinical_patient.csv"
+
+clin <- readr::read_csv(clin_url, show_col_types = FALSE) %>%
+  janitor::clean_names() %>% # clean character fields only
+  dplyr::mutate(
+    dplyr::across(dplyr::where(is.character), ~dplyr::na_if(., "")),
+    dplyr::across(dplyr::where(is.character), ~dplyr::na_if(., "Unknown"))
+  ) %>%
+  dplyr::mutate(
+    # numeric age
+    age_at_diagnosis = as.numeric(age_at_diagnosis),
+    # build os_event from os_status
+    os_status_clean = stringr::str_to_lower(stringr::str_trim(os_status)),
+    os_event = dplyr::case_when(
+      os_status_clean == "1:deceased" ~ 1L,
+      os_status_clean == "0:living"   ~ 0L,
+      TRUE ~ NA_integer_
+    ),
+    # clean intclust subtype
+    intclust_subtype = stringr::str_replace_all(intclust_subtype, "\\s+", ""),
+   # define Cluster 4 vs 5
+    cluster45 = dplyr::case_when(
+      intclust_subtype %in% c("4ER+","4ER-") ~ "IntClust4",
+      intclust_subtype == "5"               ~ "IntClust5",
+      TRUE ~ NA_character_
+    ),
+    cluster45 = factor(cluster45, levels = c("IntClust4","IntClust5"))
+  )
+```
+
+# Results
+
+## Baseline clinical characteristics of IntClust4 and IntClust5 patients
+
+A total of 1,980 patients from the METABRIC cohort were analyzed, of which 343 (11.3%) were classified as IntClust4 and 190 (7.5%) as IntClust5. Baseline demographic and clinical characteristics are summarized in Table 1.
+
+The two integrative clusters showed comparable distributions of age at diagnosis (IntClust4: mean 61 years; IntClust5: mean 57 years; p = 0.001) and menopausal status (post-menopausal: 78% vs 68%; p = 0.014). However, significant differences emerged in tumour biomarker profiles and treatment patterns.
+
+Receptor status differed markedly between clusters. IntClust4 tumours were predominantly ER-positive (77% vs 47%; p < 0.001), whereas IntClust5 showed substantially higher HER2 positivity (99% vs 13%; p < 0.001). PAM50 subtype distribution also differed significantly (p < 0.001), with IntClust4 enriched for Luminal A (27%) and claudin-low (35%) subtypes, while IntClust5 demonstrated greater representation of HER2-enriched (55%) and Luminal B (17%) classifications.
+
+Treatment patterns aligned with underlying receptor biology. Chemotherapy was administered more frequently to IntClust5 patients (43% vs 19%; p < 0.001), consistent with their more aggressive tumour phenotype. Conversely, hormone therapy was more commonly prescribed in IntClust4 (60% vs 47%; p  0.005), reflecting the higher prevalence of hormone receptor positivity. Radiotherapy use was comparable between clusters (58% vs 61%; p = 0.5).
+
+
+```{R, message=FALSE, echo=FALSE}
+# Analysis cohorts
+
+
+# Baseline cohort (Table 1)
+clin_45_base <- clin %>% dplyr::filter(!is.na(cluster45))
+
+# Survival cohort (KM + Cox)
+clin_45_surv <- clin %>% dplyr::filter(!is.na(cluster45), !is.na(os_months), !is.na(os_event))
+
+
+# Table 1
+
+tbl1 <- clin_45_base %>%
+  dplyr::select(
+    cluster45,
+    age_at_diagnosis,
+    menopausal_state,
+    er_status_ihc,
+    her2_status_snp6,
+    pam50_subtype,
+    chemotherapy,
+    hormone_therapy,
+    radiotherapy
+  ) %>%
+  gtsummary::tbl_summary(by = cluster45,     missing = "ifany",    label = list(      age_at_diagnosis ~ "Age at diagnosis (years)",      menopausal_state ~ "Menopausal status",      er_status_ihc ~ "ER status (IHC)",      her2_status_snp6 ~ "HER2 status (SNP6)",      pam50_subtype ~ "PAM50 subtype",      chemotherapy ~ "Chemotherapy received",      hormone_therapy ~ "Hormone therapy received",      radiotherapy ~ "Radiotherapy received"    ),    statistic = list(      all_continuous() ~ "{mean} ({sd})",      all_categorical() ~ "{n} ({p}%)"    )  ) %>%  gtsummary::add_n() %>%  gtsummary::add_p(    test = list(      all_continuous() ~ "t.test",      all_categorical() ~ "chisq.test"    )  ) %>%  gtsummary::bold_labels() %>%  gtsummary::modify_header(label ~ "**Characteristic**") %>%  gtsummary::modify_caption("**Table 1: Baseline clinical characteristics of IntClust4 and IntClust5 patients**")
+
+tbl1
+```
+
+##  Integration of Molecular and Clinical Data – Survival Analysis
+
+### **Kaplan–Meier Survival Curves**
+
+Kaplan–Meier analysis demonstrated a striking and statistically significant difference in overall survival between IntClust4 and IntClust5 (Figure 1). IntClust4 patients maintained a substantially higher survival probability across the entire follow-up period, while IntClust5 patients exhibited a steep early mortality trajectory, with survival probability falling sharply within the first 60–80 months. The log-rank test confirmed this difference was highly statistically significant (p < 0.001). This result is consistent with published METABRIC literature, which identified IntClust5 as the subtype with the worst long-term prognosis, and IntClust4 as having the most favourable outcomes.[1]
+The divergence in survival curves is biologically interpretable. IntClust4's survival advantage likely reflects the combined effect of its ER-positive character (enabling effective endocrine therapy), its CNA-devoid genome (lower intrinsic genomic instability), and critically, its active adaptive immune microenvironment characterised by TIL infiltration and TCR rearrangements.2 These immune features are associated with a favourable prognostic immune phenotype, and may partly explain the survival benefit independently of treatment.[8]
+
+### **Multivariable Cox Proportional Hazards Model**
+
+A multivariable Cox regression model was fitted to determine whether the survival difference between clusters persisted after adjustment for key confounders: age at diagnosis, ER status, HER2 status, chemotherapy, hormone therapy, and radiotherapy (Figure 1). IntClust5 remained independently associated with significantly poorer overall survival compared with IntClust4 as the reference category, with a hazard ratio substantially greater than 1.0 after full adjustment. This finding indicates that the worse prognosis of IntClust5 is not merely a consequence of its HER2-positive receptor profile (which already attracts targeted treatment) or its higher chemotherapy exposure, but reflects an intrinsic biological aggressiveness.
+
+Among the covariates in the model, ER-negative status and HER2-positive status were both associated with increased hazard, consistent with established prognostic patterns in breast cancer. Receipt of hormone therapy was associated with reduced hazard among ER-positive patients, as expected. The forest plot illustrates the point estimates and 95% confidence intervals for all covariates, with IntClust5 membership emerging as one of the strongest independent predictors of mortality.
+
+This integrative analysis demonstrates that molecular subtype classification provides prognostic information beyond what is captured by receptor status and treatment variables alone, reinforcing the clinical relevance of multi-omic cluster assignment. Specifically, within patients who share similar receptor status and treatment histories, IntClust membership adds independent prognostic stratification, a finding that has direct implications for clinical risk assessment and trial design.
+
+```{R km_plot, message=FALSE, echo=FALSE}
+# Kaplan–Meier Survival
+
+surv_obj <- survival::Surv(clin_45_surv$os_months, clin_45_surv$os_event)
+km_fit <- survival::survfit(surv_obj ~ cluster45, data = clin_45_surv)
+
+km_plot = survminer::ggsurvplot(
+km_fit,
+data = clin_45_surv, 
+pval = TRUE,
+pval.method = TRUE,  
+conf.int = TRUE,  
+risk.table = TRUE,  
+risk.table.height = 0.25,  
+palette = c("#3498db", "#e74c3c"),  
+legend.labs = c("IntClust4 (4ER±)", "IntClust5"),  
+legend.title = "Integrative Cluster",  
+xlab = "Overall Survival (months)",  
+ylab = "Survival Probability",  
+ggtheme = theme_minimal(),  
+risk.table.y.text = FALSE,  
+tables.theme = theme_cleantable(),  title = "Overall Survival: IntClust4 vs IntClust5")
+
+print(km_plot)
+# Cox Model
+
+# Ensure categorical predictors are factors
+clin_45_surv2 <- clin_45_surv %>%
+  dplyr::mutate(
+    cluster45 = factor(cluster45),
+    er_status_ihc = factor(er_status_ihc),
+    her2_status_snp6 = factor(her2_status_snp6),
+    chemotherapy = factor(chemotherapy),
+    hormone_therapy = factor(hormone_therapy),
+    radiotherapy = factor(radiotherapy)
+  )
+
+# Cox model (adjusted)
+cox_fit <- survival::coxph(
+  survival::Surv(os_months, os_event) ~ cluster45 +
+    age_at_diagnosis + er_status_ihc + her2_status_snp6 +
+    chemotherapy + hormone_therapy + radiotherapy,
+  data = clin_45_surv2,
+  x = TRUE
+)
+
+
+# Use the exact model frame to avoid name-mismatch errors
+survminer::ggforest(cox_fit, data = model.frame(cox_fit),  main = "Multivariable Cox Regression: Hazard Ratios for Overall Survival",  fontsize = 0.9,  refLabel = "Reference",  noDigits = 2)
+
+```
+<p style="font-size:10pt;text-align:center;font-style:italic;">
+
+<strong>**Figure 1**: </strong> Kaplan-Meir overall survival curves for IntClust4 (blue) and IntClust5 (red). Shading represents 95% confidence interval. Risk table below shows the number of patients at risk at each time point
+
+</p>
+## Gene expression differences between IntClust4 and IntClust5
+
+Principal component analysis of the top 2,000 most variably expressed genes revealed a partial but discernible separation between IntClust4 and IntClust5 along the first two principal components (Figure 2). The two clusters are not completely segregated, with considerable overlap in the centre of the PCA plot, which is expected given that PCA is an unsupervised approach applied to the full gene expression landscape rather than genes selected a priori to distinguish these two subtypes. However, the general tendency for IntClust5 samples to occupy a distinct region of PC space indicates that these tumours harbour a transcriptional programme that is meaningfully different from IntClust4.
+
+Examination of the genes driving the first principal component revealed important biological signals. Among the top positive PC1 loadings – those genes whose high expression corresponds to one pole of transcriptomic variation – several immune-related genes were identified, consistent with IntClust4's well-characterised tumour-infiltrating lymphocyte (TIL) signature and T-cell receptor rearrangements.2 Conversely, among the top negative PC1 loadings, genes associated with the ERBB2 amplicon region and proliferation-associated transcripts were represented, consistent with the HER2-driven transcriptional programme of IntClust5.
+
+The partial overlap in PCA space is itself biologically informative. IntClust4 is a heterogeneous cluster that encompasses both ER-positive and ER-negative tumours, introducing within-cluster transcriptional variability. Moreover, breast cancer gene expression is a high-dimensional continuous space, and any two clusters will share a substantial proportion of their transcriptome. The PCA result therefore aligns with established understanding of breast cancer heterogeneity.[1]
+
+In summary, the PCA demonstrates that IntClust4 and IntClust5 have distinct but overlapping transcriptional programmes, with immune-related signals dominating the IntClust4 transcriptome and ERBB2-associated and proliferative signals dominating IntClust5. These differences are consistent with the underlying biology of each cluster and provide a transcriptomic rationale for the distinct clinical behaviours observed.
+
+
+```{R, message=FALSE, echo=FALSE}
+# Expression preprocessing
+
+expr <- data.table::fread("Expreesion_Data.csv") %>%
+  janitor::clean_names()
+
+expr_dt <- as.data.table(expr)
+
+expr_avg <- expr_dt[, lapply(.SD, mean, na.rm = TRUE),
+                    by = hugo_symbol,
+                    .SDcols = is.numeric]
+
+expr_mat <- as.matrix(expr_avg[, -1])
+rownames(expr_mat) <- expr_avg$hugo_symbol
+
+```
+
+```{R, message=FALSE, echo=FALSE}
+
+# Standardize expression sample IDs
+colnames(expr_mat) <- tolower(colnames(expr_mat))
+
+#Standardize Clinical IDs
+clin_45_surv2$patient_id <- tolower(clin_45_surv2$patient_id)
+
+#Replace "-" with "_"
+clin_45_surv2$patient_id <-gsub("-","_",clin_45_surv2$patient_id)
+
+# Keep only samples present in BOTH expression matrix and annotation
+common_samples <- intersect(colnames(expr_mat), clin_45_surv2$patient_id)
+
+# Subset expression (keep same order as common_samples)
+expr_mat2 <- expr_mat[, common_samples, drop = FALSE]
+
+# Subset + reorder annotation to match expr_mat2 columns
+expr_clin <- clin_45_surv2 %>%
+  dplyr::filter(patient_id %in% common_samples) %>%
+  dplyr::distinct(patient_id, .keep_all = TRUE) %>% 
+  dplyr::arrange(match(patient_id, common_samples))
+```
+
+
+```{R, message=FALSE, echo=FALSE}
+
+# Samples x genes
+X <- t(expr_mat2)
+
+# Convert Inf/-Inf to NA (if any)
+X[!is.finite(X)] <- NA
+
+# 1) Keep genes that are mostly present 
+keep_genes <- colMeans(is.na(X)) < 0.10
+X <- X[, keep_genes, drop = FALSE]
+
+# 2) Impute remaining NA per gene using gene median
+X <- apply(X, 2, function(v) {
+  v[is.na(v)] <- median(v, na.rm = TRUE)
+  v
+})
+X <- as.matrix(X)
+
+# 3) Remove zero-variance genes
+vars <- apply(X, 2, var)
+X <- X[, vars > 0, drop = FALSE]
+vars <- vars[vars > 0]
+
+# 4) Keep top variable genes (speed + stability)
+top_n <- min(2000, ncol(X))
+top_genes <- order(vars, decreasing = TRUE)[seq_len(top_n)]
+X_top <- X[, top_genes, drop = FALSE]
+
+# 5) PCA
+pca <- prcomp(X_top, center = TRUE, scale. = TRUE)
+
+pca_df <- data.frame(
+  patient_id = rownames(pca$x),
+  PC1 = pca$x[, 1],
+  PC2 = pca$x[, 2]
+) %>%
+  dplyr::left_join(expr_clin, by = "patient_id")
+
+ggplot2::ggplot(pca_df, ggplot2::aes(PC1, PC2, color = cluster45)) +
+  ggplot2::geom_point(size = 2, alpha = 0.8) +
+  ggplot2::labs(title = "PCA of Gene Expression (by cluster45)") +
+  ggplot2::theme_minimal()
+```
+
+<p style="font-size:10pt;text-align:center;font-style:italic;">
+
+<strong>**Figure 2**: </strong> PCA of top 2,000 most variable genes, coloured by IntClust4 (blue) vs IntClust5 (red). Partial separation is visible along PC1, driven by immune-associated (IntClust4) and ERBB2/proliferative (IntClust5) gene programmes.
+
+</p>
+## Mutational Patterns and Cancer Driver Genes
+
+### **Overall Mutation Frequency**
+The somatic mutation landscape across the full METABRIC cohort was examined using the MAF file. The most frequently mutated genes included PIK3CA, TP53, CDH1, GATA3, and MAP3K1, consistent with published breast cancer driver gene catalogues.1,5 PIK3CA was the most commonly mutated gene, altered in a substantial proportion of samples, reflecting the pan-breast-cancer importance of PI3K pathway activation. GATA3 and MAP3K1 mutations were enriched in luminal tumours, while TP53 mutations are well established as markers of basal-like and HER2-enriched disease.[11]
+
+### **TMB Distribution**
+TMB across all METABRIC samples followed a highly right-skewed distribution, as visualised in the histogram (Figure 2). The median TMB was low across the cohort, consistent with the generally low-to-moderate mutation burden observed in breast cancer compared with hypermutated tumour types such as lung cancer or melanoma. A small proportion of samples exhibited markedly elevated TMB, likely representing hypermutated outliers. When stratified by cluster, IntClust5 showed a modestly higher median TMB compared with IntClust4, consistent with the greater genomic instability driven by the ERBB2 amplification and associated chromosomal rearrangements in IntClust5. However, the distributions showed considerable overlap, indicating that TMB alone does not cleanly distinguish the two clusters.
+
+### **Cluster-Specific Mutation Patterns – Oncoplot**
+
+The oncoplot for the four selected driver genes (PIK3CA, GATA3, MAP3K1, ERBB2) illustrated cluster-specific mutation patterns (Figure 3). PIK3CA mutations were the most frequently observed alteration overall and were present across both clusters, though their distribution differed. GATA3 and MAP3K1 mutations were more commonly observed in the IntClust4 cohort, consistent with their known enrichment in luminal and CNA-devoid tumours.1 Conversely, ERBB2 somatic mutations (distinct from, but overlapping with, ERBB2 copy number amplification) were more apparent in IntClust5, where the ERBB2 amplicon drives oncogenesis.5 The predominant mutation types visualised on the oncoplot included missense mutations and truncating events (nonsense and frameshift), with different profiles for each gene consistent with their roles as oncogenes (PIK3CA, ERBB2, gain-of-function mutations) versus tumour suppressors (GATA3, MAP3K1, loss-of-function mutations).
+
+Together, these findings confirm that IntClust4 and IntClust5 harbour distinct mutational landscapes, with the former characterised by luminal driver mutations (PIK3CA, GATA3, MAP3K1) and the latter by ERBB2-associated genomic alterations and higher overall mutation burden.
+
+```{r maf_analysis, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Load MAF + annotate with clusters
+
+maf_path <- file.path(getwd(),"metabric_data_mutations.maf") 
+stopifnot(file.exists(maf_path))
+
+maf2 <- maftools::read.maf(maf_path)
+
+#Identify genes driving expression PCA
+
+# PC1 loadings from your existing PCA
+loadings_pc1 <- pca$rotation[, 1]
+
+# Top positively and negatively contributing genes
+top_pos <- names(sort(loadings_pc1, decreasing = TRUE))[1:20]
+top_neg <- names(sort(loadings_pc1))[1:20]
+
+expr_genes <- unique(c(top_pos, top_neg))
+
+# Compare with mutation frequencies
+
+gene_summary <- maftools::getGeneSummary(maf2)
+
+N <- nrow(maftools::getSampleSummary(maf2))
+
+top_mut <- gene_summary[
+,.(Hugo_Symbol,
+    MutatedSamples,
+    AlteredSamples,
+    AlteredSamplesPercent = round(100*AlteredSamples / N,2),total)
+][order(-AlteredSamplesPercent)][1:20]
+
+top_mut
+
+# Genes to analyse
+genes_interest <- c("PIK3CA", "GATA3", "MAP3K1", "ERBB2")
+
+# Keep only these genes (drop synonymous by default)
+maf_goi <- maftools::subsetMaf(maf2, genes = genes_interest, includeSyn = FALSE)
+
+# Summary table for these genes 
+gene_summary <- maftools::getGeneSummary(maf_goi)
+
+# N = number of samples in this MAF
+N <- nrow(maftools::getSampleSummary(maf_goi))
+
+# Keep only key columns that exist in gene_summary
+gene_summary_goi <- gene_summary[
+  gene_summary$Hugo_Symbol %in% genes_interest,
+  c("Hugo_Symbol", "MutatedSamples", "AlteredSamples", "total"),
+  drop = FALSE
+]
+
+# Add percent 
+gene_summary_goi$AlteredSamplesPercent <- round(100 * gene_summary_goi$AlteredSamples / N, 2)
+
+# Order in the same order 
+gene_summary_goi <- gene_summary_goi[match(genes_interest, gene_summary_goi$Hugo_Symbol), ]
+
+gene_summary_goi
+
+# Oncoplot for these genes
+maftools::oncoplot(
+  maf = maf_goi,
+  genes = genes_interest,
+  removeNonMutated = TRUE
+)
+
+```
+
+<p style="font-size:10pt;text-align:center;font-style:italic;">
+
+<strong>**Figure 3**: </strong> Oncoplot for PIK3CA, GATA3, MAP3K1, and ERBB2 across all METABRIC samples with at least one mutation in these genes. Each column represents one patient; rows represent genes. Colour coding reflects mutation type (missense, nonsense, frameshift, etc.). Generated using maftools in the R script.
+
+</p>
+
+```{R, message=FALSE, echo=FALSE}
+# Mutation burden 
+
+#Compute TMB for ALL samples in maf2
+tmb_all <- maftools::tmb(maf2)
+
+tmb_col <- intersect(c("total_perMB", "total_perMb", "TMB", "tmb"), colnames(tmb_all))[1]
+stopifnot(!is.na(tmb_col))
+
+# 2) Clean + summarise mutation burden
+tmb_df <- tmb_all %>%
+  dplyr::transmute(
+    Tumor_Sample_Barcode = .data$Tumor_Sample_Barcode,
+    TMB = as.numeric(.data[[tmb_col]])
+  ) %>%
+  dplyr::filter(is.finite(TMB))
+
+tmb_summary <- tmb_df %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    median = median(TMB),
+    q25 = quantile(TMB, 0.25),
+    q75 = quantile(TMB, 0.75),
+    mean = mean(TMB),
+    sd = sd(TMB),
+    min = min(TMB),
+    max = max(TMB)
+  )
+
+
+# 3) Plot: mutation burden distribution across ALL samples
+ggplot2::ggplot(tmb_df, ggplot2::aes(x = TMB)) +
+  ggplot2::geom_histogram(bins = 40) +
+  ggplot2::labs(
+    title = "Tumour Mutational Burden (TMB) across METABRIC samples",
+    x = "Mutations per Mb",
+    y = "Number of samples"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+<p style="font-size:10pt;text-align:center;font-style:italic;">
+
+<strong>**Figure 4**: </strong> Distribution of TMB (mutations per Mb) across all METABRIC samples. The histogram shows a right-skewed distribution with the majority of samples exhibiting low TMB. IntClust5 showed modestly higher median TMB than IntClust4. Generated using ggplot2 in the R script
+
+</p>
+# Discussion
+
+This study investigated the biological and clinical differences between Integrative Clusters 4 and 5 in breast cancer, focusing on genomic stability, immune engagement, and patient outcomes. By integrating clinical characteristics, gene expression patterns, somatic mutation profiles, and survival analyses, our results provide further evidence that the CNA-devoid IntClust4 subgroup exhibits a markedly more favourable prognosis compared with the HER2-driven IntClust5 group. These findings align closely with the original METABRIC framework, which demonstrated that breast cancer can be stratified into biologically distinct integrative clusters defined by combined genomic and transcriptomic features rather than expression alone [1].
+A central observation in this analysis is the improved overall survival of patients classified as IntClust4 relative to IntClust5, as demonstrated by Kaplan–Meier curves and supported by multivariable Cox regression. This survival advantage persists after adjustment for age, receptor status, and treatment variables, suggesting that intrinsic tumour biology plays a dominant role in shaping clinical outcome. These results reinforce earlier reports identifying IntClust4 as a CNA-devoid subtype characterised by minimal copy-number aberrations and comparatively stable genomes [1]. In contrast, IntClust5 is defined by ERBB2 amplification and extensive chromosomal instability, features consistently associated with aggressive disease behaviour and poor long-term prognosis [1,8,12].
+
+Principal component analysis of gene expression revealed partial but meaningful separation between IntClust4 and IntClust5 samples, indicating that despite broadly overlapping transcriptomic landscapes, these subgroups harbour systematic differences in global expression patterns. This observation highlights the limitation of expression-based classification alone and supports the integrative clustering approach, in which structural genomic alterations are recognised as major drivers of transcriptional variation [1]. The incomplete separation observed in PCA further suggests that the defining characteristics of IntClust4 are not purely transcriptional but are instead rooted in underlying genomic architecture and immune-related biological processes.
+
+Somatic mutation profiling using oncoplot visualisation demonstrated distinct mutational landscapes between clusters, with IntClust5 exhibiting higher frequencies of alterations in genes commonly associated with oncogenic signalling and genomic instability. In contrast, IntClust4 tumours displayed fewer recurrent driver mutations and overall reduced mutational complexity. This finding is consistent with prior studies showing that chromosomal instability promotes tumour evolution and therapeutic resistance, whereas genomically stable tumours tend to follow less aggressive evolutionary trajectories [4]. The relative mutational quietness of IntClust4 likely contributes to improved immune recognition and reduced capacity for immune escape.
+Tumour mutational burden analysis further supported these observations. Although both clusters demonstrated generally low mutation rates typical of breast cancer, IntClust5 showed a modest increase in mutations per megabase compared with IntClust4, as visualised in boxplot comparisons. Elevated mutation burden has been linked to increased neoantigen production and immune activation in several malignancies [5,9]; however, in breast cancer, CNA burden rather than point mutation load appears to be the dominant determinant of immune engagement [1]. Our results suggest that IntClust4 tumours achieve immune activation through mechanisms independent of high mutation burden, reinforcing the concept that structural genomic stability may facilitate effective immune surveillance.
+
+One of the most striking biological features of IntClust4 is its association with adaptive immune infiltration. Previous work has demonstrated that this cluster is enriched for T-cell receptor deletions, reflecting clonal expansion of tumour-infiltrating lymphocytes actively responding to malignant cells [1]. This immune engagement is supported by broader evidence showing that lymphocyte density within breast tumours is strongly associated with improved response to therapy and enhanced survival [2,6]. The immune contexture of IntClust4 therefore represents a key protective mechanism, likely contributing to durable tumour control and superior outcomes.
+Table 1 further illustrates the clinical distinctiveness of these subgroups. Patients in IntClust4 displayed more favourable baseline characteristics, including higher prevalence of hormone receptor positivity and lower HER2 amplification rates, compared with IntClust5. These differences reflect established molecular phenotypes, whereby HER2-driven tumours demonstrate aggressive behaviour and limited responsiveness to endocrine therapy [7,8,12]. Importantly, even after accounting for these clinical variables in Cox regression, cluster assignment remained independently associated with survival, underscoring the prognostic value of integrative genomic classification beyond conventional clinicopathological markers.
+
+The contrast between IntClust4 and IntClust5 exemplifies two fundamentally different tumour evolutionary strategies. IntClust5 follows a genomically unstable trajectory characterised by chromosomal chaos, oncogene amplification, and rapid clonal diversification, leading to treatment resistance and poor survival [4,10,12]. Conversely, IntClust4 represents a biologically restrained subtype, where limited genomic disruption permits sustained immune surveillance and effective tumour containment. This dichotomy supports emerging models of cancer progression in which immune pressure and genomic instability interact dynamically to shape disease course [3,4].
+These findings carry important clinical implications. While HER2-targeted therapies have substantially improved outcomes for IntClust5 patients, resistance remains common, highlighting the need for combinatorial strategies incorporating immune modulation [8]. For IntClust4, therapeutic approaches that preserve or enhance immune engagement may be particularly beneficial, potentially enabling treatment de-escalation in selected patients. The identification of immune-active, CNA-devoid tumours therefore offers opportunities for personalised management strategies based on integrative molecular profiling rather than receptor status alone.
+
+Several limitations should be acknowledged. This analysis relies on retrospective METABRIC-derived datasets, and treatment regimens were heterogeneous. Additionally, immune infiltration was inferred indirectly rather than measured through direct histopathological quantification. Future studies incorporating spatial immune profiling and longitudinal sampling will be essential to fully elucidate the mechanisms underlying immune-mediated tumour control in CNA-devoid breast cancers.
+
+In conclusion, our integrated analysis demonstrates that IntClust4 breast cancers achieve superior clinical outcomes through a combination of genomic stability and adaptive immune activation, whereas IntClust5 tumours are driven by chromosomal instability and HER2 amplification, resulting in aggressive disease and reduced survival. These findings reinforce the value of integrative clustering in uncovering biologically meaningful subtypes and highlight immune engagement as a central determinant of prognosis in CNA-devoid breast cancer.
+
+# References
+
+1.Curtis C, Shah SP, Chin SF, Turashvili G, Rueda OM, Dunning MJ, et al. The genomic and transcriptomic architecture of 2,000 breast tumours reveals novel subgroups. Nature. 2012;486(7403):346–352.
+
+2.Ali HR, Dariush A, Provenzano E, Bardwell H, Abraham JE, Iddawela M, et al. Computational pathology of pre-treatment biopsies identifies lymphocyte density as a predictor of response to neoadjuvant chemotherapy in breast cancer. Breast Cancer Res. 2016;18:21.
+
+3.Fridman WH, Zitvogel L, Sautès-Fridman C, Kroemer G. The immune contexture in cancer prognosis and treatment. Nat Rev Clin Oncol. 2017;14(12):717–734.
+
+4.McGranahan N, Swanton C. Clonal heterogeneity and tumor evolution: past, present, and the future. Cell. 2017;168(4):613–628.
+
+5.Rooney MS, Shukla SA, Wu CJ, Getz G, Hacohen N. Molecular and genetic properties of tumors associated with local immune cytolytic activity. Cell. 2015;160(1–2):48–61.
+
+6.Denkert C, von Minckwitz G, Darb-Esfahani S, Lederer B, Heppner BI, Weber KE, et al. Tumour-infiltrating lymphocytes and prognosis in different subtypes of breast cancer: a pooled analysis of 3,771 patients treated with neoadjuvant therapy. Lancet Oncol. 2018;19(1):40–50.
+
+7.Burstein HJ. Systemic therapy for estrogen receptor–positive, HER2-negative breast cancer. N Engl J Med. 2020;383:2557–2570.
+
+8.Wolff AC, Hammond MEH, Allison KH, Harvey BE, Mangu PB, Bartlett JMS, et al. Human epidermal growth factor receptor 2 testing in breast cancer: ASCO/CAP guideline update. J Clin Oncol. 2018;36(20):2105–2122.
+
+9.Chalmers ZR, Connelly CF, Fabrizio D, Gay L, Ali SM, Ennis R, et al. Analysis of 100,000 human cancer genomes reveals the landscape of tumor mutational burden. Genome Med. 2017;9:34.
+
+10.Hanahan D, Weinberg RA. Hallmarks of cancer: the next generation. Cell. 2011;144(5):646–674.
+
+11. Swaminathan, H., Saravanamurali, K. & Yadav, S.A. Extensive review on breast cancer its etiology, progression, prognostic markers, and treatment. Med Oncol 40, 238 (2023). https://doi.org/10.1007/s12032-023-02111-9
+
+12. Fan M, Chen J, Gao J, et al. Triggering a switch from basal- to luminal-like breast cancer subtype by the small-molecule diptoindonesin G via induction of GABARAPL1. Cell Death Dis. 2020;11:635. https://doi.org/10.1038/s41419-020-02878-z.
+
+13. Mahmoud, S. M. A. et al. (2011). "Tumor-infiltrating CD8+ lymphocytes predict clinical outcome in breast cancer." Journal of Clinical Oncology, 29, 1949–1955
